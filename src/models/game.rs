@@ -36,7 +36,7 @@ pub struct MatchResult {
 #[derive(Debug, Clone)]
 pub struct MatchRoom {
     pub id: Uuid,
-    pub match_type: String,
+    //pub match_type: String,
     pub required_players: i32,
     pub current_players: i32,
     pub players: Vec<Uuid>,

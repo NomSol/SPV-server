@@ -46,7 +46,7 @@ impl MatchService {
             while pool.len() < min_count {
                 pool.push(MatchRoom {
                     id: Uuid::new_v4(),
-                    match_type: match_type.clone(),
+                    //match_type: match_type.clone(),
                     required_players: self.get_required_players(match_type)?,
                     current_players: 0,
                     players: Vec::new(),
@@ -73,7 +73,7 @@ impl MatchService {
             while empty_rooms < min_count {
                 pool.push(MatchRoom {
                     id: Uuid::new_v4(),
-                    match_type: match_type.to_string(),
+                    //match_type: match_type.to_string(),
                     required_players: self.get_required_players(match_type)?,
                     current_players: 0,
                     players: Vec::new(),
@@ -139,7 +139,7 @@ impl MatchService {
         // 如果没有合适的房间，创建新房间
         let new_room = MatchRoom {
             id: Uuid::new_v4(),
-            match_type: match_type.to_string(),
+            //match_type: match_type.to_string(),
             required_players,
             current_players: 1,
             players: vec![user_id],

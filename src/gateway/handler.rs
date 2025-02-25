@@ -69,7 +69,7 @@ impl WebSocketHandler {
             error: None,
         };
     
-        self.send_message(conn_id, &welcome_msg).await;
+        let _ = self.send_message(conn_id, &welcome_msg).await;
     
         // 处理接收消息
         while let Some(Ok(message)) = ws_receiver.next().await {
@@ -82,7 +82,7 @@ impl WebSocketHandler {
                             data: None,
                             error: Some(e.to_string()),
                         };
-                        self.send_message(conn_id, &error_msg).await;
+                        let _ = self.send_message(conn_id, &error_msg).await;
                     }
                 }
                 Message::Close(_) => break,

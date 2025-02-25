@@ -8,7 +8,6 @@ use uuid::Uuid;
 pub struct ClientState {
     pub user_id: Uuid,
     pub match_id: Option<Uuid>,
-    pub last_ping: std::time::Instant,
     pub sender: mpsc::UnboundedSender<Message>,
 }
 
@@ -33,7 +32,6 @@ impl ConnectionManager {
         let state = ClientState {
             user_id,
             match_id: None,
-            last_ping: std::time::Instant::now(),
             sender,
         };
         
