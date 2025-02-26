@@ -7,23 +7,29 @@ CaiTH (Cai Treasure Hunt) 是一个基于 WebSocket 的宝藏寻找游戏服务�
 
 ```
 CaiTH-server/
+├── Cargo.toml
+├── .env                            # Environment variables
 ├── src/
-│   ├── main.rs           # 程序入口
-│   ├── config.rs         # 配置管理
-│   ├── error.rs          # 错误处理
-│   ├── gateway/          # WebSocket网关
+│   ├── main.rs                     # Program entry point
+│   ├── config/
+│   │   └── mod.rs                  # Configuration management
+│   ├── error.rs                    # Error handling
+│   ├── gateway/                    # WebSocket gateway
 │   │   ├── mod.rs
-│   │   ├── handler.rs    # 连接处理
-│   │   └── state.rs      # 连接状态管理
-│   ├── matchmaking/      # 匹配服务
+│   │   ├── handler.rs              # Connection handler
+│   │   └── connection_manager.rs   # Connection state management
+│   ├── matchmaking/                # Matchmaking service
 │   │   ├── mod.rs
-│   │   ├── service.rs    # 匹配逻辑
-│   │   └── models.rs     # 匹配相关模型
-│   ├── models/           # 数据模型
+│   │   └── service.rs              # Matchmaking logic
+│   ├── models/                     # Data models
 │   │   ├── mod.rs
-│   │   ├── message.rs    # 消息定义
-│   │   └── game.rs       # 游戏相关结构
-│   └── db/              # 数据库交互（待实现）
+│   │   ├── message.rs              # Message definitions
+│   │   └── game.rs                 # Game-related structures
+│   └── db/                         # Database interaction
+│       ├── mod.rs
+│       ├── hasura_client.rs        # Hasura GraphQL client
+│       └── hasura_match_repository.rs # Match-related database operations
+└── README.md
 ```
 
 ## 已实现功能

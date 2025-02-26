@@ -16,6 +16,7 @@ sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "postgres", "uui
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"
 jsonwebtoken = "9.2.0"
+rand = "0.8.5"
 chrono = { version = "0.4.33", features = ["serde"] }
 uuid = { version = "1.7.0", features = ["v4", "serde"] }
 
@@ -23,3 +24,10 @@ uuid = { version = "1.7.0", features = ["v4", "serde"] }
 thiserror = "1.0.56"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+# HTTP
+reqwest = { version = "0.11", features = ["json", "tokio-native-tls"] }
+tower-http = { version = "0.5.2", features = ["cors", "fs"] }
+
+# .env
+dotenv = "0.15.0"

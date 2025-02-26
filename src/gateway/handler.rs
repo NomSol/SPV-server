@@ -9,7 +9,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::ConnectionManager;
+use crate::ConnectionManager;
 
 pub struct WebSocketHandler {
     conn_manager: ConnectionManager,
@@ -106,7 +106,7 @@ impl WebSocketHandler {
             .ok_or(Error::ConnectionNotFound)?;
         
         // 加入对应的匹配池
-        let match_result = self.match_service.join_match(
+        let match_result = self.match_service.clone().join_match(
             state.user_id,
             &match_type
         ).await?;

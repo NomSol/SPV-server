@@ -9,13 +9,19 @@ pub enum Error {
     #[error("WebSocket error: {0}")]
     WsError(String),
     #[error("Database error: {0}")]
-    DbError(#[from] sqlx::Error),
+    DbError(String),
     #[error("Connection not found")]
     ConnectionNotFound,
     #[error("We didn't find that match")]
     MatchNotFound,
     #[error("The match type is not right")]
     InvalidMatchType,
+    #[error("The match is not ready")]
+    MatchNotReady,
+    #[error("You have already joined a match")]
+    UserAlreadyInMatch,
+    #[error("Your match has already started, so you can't leave")]
+    MatchAlreadyStarted,
 }
 
 impl Error {
@@ -28,6 +34,9 @@ impl Error {
             Error::ConnectionNotFound => 1005,
             Error::MatchNotFound => 1006,
             Error::InvalidMatchType => 1007,
+            Error::MatchNotReady => 1008,
+            Error::UserAlreadyInMatch => 1009,
+            Error::MatchAlreadyStarted => 1010,
         }
     }
 }

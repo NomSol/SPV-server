@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Treasure Hunt Matchmaking Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+        }
+        select {
+            padding: 5px;
+        }
+        #log {
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid #ddd;
+            margin-top: 20px;
+        }
+        .received {
+            color: green;
+        }
+        .sent {
+            color: blue;
+        }
+        .error {
+            color: red;
+        }
+        .status {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>Treasure Hunt Matchmaking Test</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Connection</h2>
+            <div>
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+            </div>
+            <div class="status">
+                Connection: <span id="connectionStatus">Disconnected</span>
+            </div>
+            <div class="status">
+                Match Status: <span id="matchStatus">Not in match</span>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Matchmaking</h2>
+            <div>
+                <select id="matchType">
+                    <option value="1v1">1v1</option>
+                    <option value="2v2">2v2</option>
+                    <option value="5v5">5v5</option>
+                </select>
+                <button id="startMatchBtn" disabled>Start Matchmaking</button>
+                <button id="cancelMatchBtn" disabled>Cancel Matchmaking</button>
+            </div>
+            <div>
+                <button id="getDetailsBtn" disabled>Get Match Details</button>
+                <button id="treasureBtn" disabled>Simulate Treasure Discovery</button>
+                <button id="endMatchBtn" disabled>End Match</button>
+            </div>
+        </div>
+    </div>
+    
+    <h2>Match Details</h2>
+    <div id="matchDetails">
+        <p>No active match</p>
+    </div>
+    
+    <h2>Log</h2>
+    <div id="log"></div>
+    
+    <script>
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const startMatchBtn = document.getElementById('startMatchBtn');
+        const cancelMatchBtn = document.getElementById('cancelMatchBtn');
+        const getDetailsBtn = document.getElementById('getDetailsBtn');
+        const treasureBtn = document.getElementById('treasureBtn');
+        const endMatchBtn = document.getElementById('endMatchBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const matchStatus = document.getElementById('matchStatus');
+        const matchDetails = document.getElementById('matchDetails');
+        const log = document.getElementById('log');
+        const matchTypeSelect = document.getElementById('matchType');
+        
+        // Global variables
+        let socket;
+        let currentMatchId = null;
+        let currentTeamId = null;
+        let userId = null;
+        
+        // Generate random UUID
+        function generateUuid() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        
+        // Add log entry
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.classList.add(type);
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        // Connect to WebSocket server
+        connectBtn.addEventListener('click', () => {
+            // Generate random user ID
+            userId = generateUuid();
+            
+            // Create WebSocket connection
+            const wsUrl = `ws://${window.location.host}/ws?user_id=${userId}`;
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                connectionStatus.textContent = 'Connected';
+                addLog(`Connected as user ${userId}`, 'info');
+                
+                // Update button states
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                startMatchBtn.disabled = false;
+            };
+            
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                addLog(`Received: ${JSON.stringify(message)}`, 'received');
+                
+                handleServerMessage(message);
+            };
+            
+            socket.onclose = () => {
+                connectionStatus.textContent = 'Disconnected';
+                addLog('Disconnected from server', 'info');
+                
+                // Reset button states
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                startMatchBtn.disabled = true;
+                cancelMatchBtn.disabled = true;
+                getDetailsBtn.disabled = true;
+                treasureBtn.disabled = true;
+                endMatchBtn.disabled = true;
+                
+                // Reset state
+                currentMatchId = null;
+                currentTeamId = null;
+                matchStatus.textContent = 'Not in match';
+                matchDetails.innerHTML = '<p>No active match</p>';
+            };
+            
+            socket.onerror = (error) => {
+                addLog(`WebSocket error: ${error}`, 'error');
+            };
+        });
+        
+        // Disconnect from server
+        disconnectBtn.addEventListener('click', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+        
+        // Start matchmaking
+        startMatchBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLog('Not connected to server', 'error');
+                return;
+            }
+            
+            const matchType = matchTypeSelect.value;
+            
+            // Send matchmaking request
+            const message = {
+                msg_id: generateUuid(),
+                cmd: 'match.start',
+                data: matchType
+            };
+            
+            socket.send(JSON.stringify(message));
+            addLog(`Sent: ${JSON.stringify(message)}`, 'sent');
+            
+            startMatchBtn.disabled = true;
+            matchStatus.textContent = 'Finding match...';
+        });
+        
+        // Cancel matchmaking
+        cancelMatchBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLog('Not connected to server', 'error');
+                return;
+            }
+            
+            if (!currentMatchId) {
+                addLog('Not in a match', 'error');
+                return;
+            }
+            
+            // Send cancel request
+            const message = {
+                msg_id: generateUuid(),
+                cmd: 'match.cancel',
+                data: {}
+            };
+            
+            socket.send(JSON.stringify(message));
+            addLog(`Sent: ${JSON.stringify(message)}`, 'sent');
+        });
+        
+        // Get match details
+        getDetailsBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLog('Not connected to server', 'error');
+                return;
+            }
+            
+            if (!currentMatchId) {
+                addLog('Not in a match', 'error');
+                return;
+            }
+            
+            // Send details request
+            const message = {
+                msg_id: generateUuid(),
+                cmd: 'match.details',
+                data: { match_id: currentMatchId }
+            };
+            
+            socket.send(JSON.stringify(message));
+            addLog(`Sent: ${JSON.stringify(message)}`, 'sent');
+        });
+        
+        // Simulate treasure discovery
+        treasureBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLog('Not connected to server', 'error');
+                return;
+            }
+            
+            if (!currentMatchId) {
+                addLog('Not in a match', 'error');
+                return;
+            }
+            
+            // If no team ID, use a random one for testing
+            const teamId = currentTeamId || generateUuid();
+            
+            // Send discovery
+            const message = {
+                msg_id: generateUuid(),
+                cmd: 'game.discover_treasure',
+                data: {
+                    match_id: currentMatchId,
+                    team_id: teamId,
+                    treasure_id: generateUuid(),
+                    score: Math.floor(Math.random() * 100) + 1
+                }
+            };
+            
+            socket.send(JSON.stringify(message));
+            addLog(`Sent: ${JSON.stringify(message)}`, 'sent');
+        });
+        
+        // End match
+        endMatchBtn.addEventListener('click', () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addLog('Not connected to server', 'error');
+                return;
+            }
+            
+            if (!currentMatchId) {
+                addLog('Not in a match', 'error');
+                return;
+            }
+            
+            // Send end match request
+            const message = {
+                msg_id: generateUuid(),
+                cmd: 'game.end_match',
+                data: { match_id: currentMatchId }
+            };
+            
+            socket.send(JSON.stringify(message));
+            addLog(`Sent: ${JSON.stringify(message)}`, 'sent');
+        });
+        
+        // Handle server messages
+        function handleServerMessage(message) {
+            if (message.error) {
+                addLog(`Error: ${message.error}`, 'error');
+                return;
+            }
+            
+            const data = message.data;
+            if (!data) return;
+            
+            // Handle welcome message
+            if (data.conn_id) {
+                addLog(`Connected with connection ID: ${data.conn_id}`, 'info');
+            }
+            
+            // Handle match status update
+            if (data.match_id) {
+                currentMatchId = data.match_id;
+                updateMatchStatus(data);
+            }
+            
+            // Handle match details
+            if (data.teams) {
+                displayMatchDetails(data);
+                
+                // Find user's team
+                data.teams.forEach(team => {
+                    team.members.forEach(member => {
+                        if (member.user_id === userId) {
+                            currentTeamId = team.id;
+                        }
+                    });
+                });
+            }
+            
+            // Handle match cancellation
+            if (data.status === 'cancelled') {
+                currentMatchId = null;
+                matchStatus.textContent = 'Match cancelled';
+                startMatchBtn.disabled = false;
+                cancelMatchBtn.disabled = true;
+                getDetailsBtn.disabled = true;
+                treasureBtn.disabled = true;
+                endMatchBtn.disabled = true;
+                matchDetails.innerHTML = '<p>No active match</p>';
+            }
+        }
+        
+        // Update match status
+        function updateMatchStatus(data) {
+            if (data.status) {
+                let statusText = data.status;
+                
+                if (data.current_players !== undefined && data.required_players !== undefined) {
+                    statusText += ` (${data.current_players}/${data.required_players} players)`;
+                }
+                
+                matchStatus.textContent = statusText;
+                
+                // Update button states based on match status
+                if (data.status === 'matching') {
+                    startMatchBtn.disabled = true;
+                    cancelMatchBtn.disabled = false;
+                    getDetailsBtn.disabled = false;
+                    treasureBtn.disabled = true;
+                    endMatchBtn.disabled = true;
+                } else if (data.status === 'ready' || data.status === 'in_progress') {
+                    startMatchBtn.disabled = true;
+                    cancelMatchBtn.disabled = true;
+                    getDetailsBtn.disabled = false;
+                    treasureBtn.disabled = false;
+                    endMatchBtn.disabled = false;
+                } else if (data.status === 'completed') {
+                    startMatchBtn.disabled = false;
+                    cancelMatchBtn.disabled = true;
+                    getDetailsBtn.disabled = true;
+                    treasureBtn.disabled = true;
+                    endMatchBtn.disabled = true;
+                    currentMatchId = null;
+                }
+            }
+        }
+        
+        // Display match details
+        function displayMatchDetails(data) {
+            let html = '<table>';
+            html += '<tr><th>Property</th><th>Value</th></tr>';
+            html += `<tr><td>Match ID</td><td>${data.id}</td></tr>`;
+            html += `<tr><td>Type</td><td>${data.match_type}</td></tr>`;
+            html += `<tr><td>Status</td><td>${data.status}</td></tr>`;
+            if (data.start_time) {
+                html += `<tr><td>Start Time</td><td>${new Date(data.start_time).toLocaleString()}</td></tr>`;
+            }
+            html += '</table>';
+            
+            if (data.teams && data.teams.length > 0) {
+                html += '<h3>Teams</h3>';
+                
+                data.teams.forEach(team => {
+                    html += `<h4>Team ${team.team_number} (Score: ${team.total_score})</h4>`;
+                    
+                    if (team.members && team.members.length > 0) {
+                        html += '<table>';
+                        html += '<tr><th>Player</th><th>Score</th></tr>';
+                        
+                        team.members.forEach(member => {
+                            const isCurrentUser = member.user_id === userId ? ' (You)' : '';
+                            html += `<tr><td>${member.nickname}${isCurrentUser}</td><td>${member.score}</td></tr>`;
+                        });
+                        
+                        html += '</table>';
+                    }
+                });
+            }
+            
+            matchDetails.innerHTML = html;
+        }
+        
+        // Send ping every 5 seconds to keep connection alive
+        setInterval(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const message = {
+                    msg_id: generateUuid(),
+                    cmd: 'sys.ping',
+                    data: {}
+                };
+                
+                socket.send(JSON.stringify(message));
+                // Not logging pings to reduce noise
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
