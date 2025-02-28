@@ -42,10 +42,14 @@ async fn main() {
         .init();
     
     // Create matchmaking service
-    let match_service = MatchService::new();
+    let mut match_service = MatchService::new();
     
     // Create WebSocket handler
     let ws_handler = Arc::new(WebSocketHandler::new(match_service.clone()));
+
+    if let Some(service) = Arc::get_mut(&mut match_service) {
+        service.set_ws_handler(ws_handler.clone());
+    }
     
     // Create connection manager
     let conn_manager = ConnectionManager::new();

@@ -64,10 +64,21 @@
         th {
             background-color: #f2f2f2;
         }
+        .user-select {
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
     <h1>Treasure Hunt Matchmaking Test</h1>
+    
+    <div class="user-select">
+        <label for="userIdSelect">Select User ID:</label>
+        <select id="userIdSelect">
+            <option value="918fb097-5aa6-4ec0-8b25-96ed9c230bbc">User 1 (918fb097-5aa6-4ec0-8b25-96ed9c230bbc)</option>
+            <option value="47da4d5e-9ed1-4347-b86c-7bb1947e369d">User 2 (47da4d5e-9ed1-4347-b86c-7bb1947e369d)</option>
+        </select>
+    </div>
     
     <div class="container">
         <div class="panel">
@@ -125,6 +136,7 @@
         const matchDetails = document.getElementById('matchDetails');
         const log = document.getElementById('log');
         const matchTypeSelect = document.getElementById('matchType');
+        const userIdSelect = document.getElementById('userIdSelect');
         
         // Global variables
         let socket;
@@ -132,7 +144,7 @@
         let currentTeamId = null;
         let userId = null;
         
-        // Generate random UUID
+        // Generate random UUID for message IDs
         function generateUuid() {
             return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -151,8 +163,8 @@
         
         // Connect to WebSocket server
         connectBtn.addEventListener('click', () => {
-            // Generate random user ID
-            userId = generateUuid();
+            // Get selected user ID
+            userId = userIdSelect.value;
             
             // Create WebSocket connection
             const wsUrl = `ws://${window.location.host}/ws?user_id=${userId}`;
@@ -172,6 +184,18 @@
                 const message = JSON.parse(event.data);
                 addLog(`Received: ${JSON.stringify(message)}`, 'received');
                 
+                // 检查消息是否包含匹配状态更新
+                if (message.data && message.data.match_id && message.data.status) {
+                    console.log("收到匹配状态更新:", message.data);
+                    
+                    // 更新当前匹配ID
+                    currentMatchId = message.data.match_id;
+                    
+                    // 更新匹配状态
+                    updateMatchStatus(message.data);
+                }
+                
+                // 继续处理其他类型的消息
                 handleServerMessage(message);
             };
             

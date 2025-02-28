@@ -48,4 +48,28 @@ impl ConnectionManager {
         let connections = self.connections.read().await;
         connections.get(conn_id).cloned()
     }
+
+    // 添加按匹配ID查找连接的方法，为广播做准备
+    pub async fn get_connections_by_match(&self, match_id: Uuid) -> Vec<Uuid> {
+        let connections = self.connections.read().await;
+        
+        connections.iter()
+            .filter_map(|(conn_id, state)| {
+                if state.match_id == Some(match_id) {
+                    Some(*conn_id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    // 添加更新连接匹配ID的方法
+    pub async fn update_match_id(&self, conn_id: &Uuid, match_id: Option<Uuid>) {
+        let mut connections = self.connections.write().await;
+        
+        if let Some(state) = connections.get_mut(conn_id) {
+            state.match_id = match_id;
+        }
+    }
 }

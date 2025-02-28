@@ -6,6 +6,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use crate::error::{Error, Result};
+use crate::gateway::handler::WebSocketHandler;
 use crate::models::game::{MatchResult, MatchRoom};
 use crate::db::hasura_match_repository::HasuraMatchRepository;
 
@@ -13,6 +14,7 @@ pub struct MatchService {
     match_pools: Arc<RwLock<HashMap<String, Vec<MatchRoom>>>>,
     min_room_count: HashMap<String, usize>,
     repo_cell: Arc<tokio::sync::OnceCell<Arc<HasuraMatchRepository>>>,
+    ws_handler: Option<Arc<WebSocketHandler>>,
 }
 
 impl MatchService {
@@ -30,6 +32,7 @@ impl MatchService {
                 ("5v5".to_string(), 2),
             ]),
             repo_cell,
+            ws_handler: None,
         });
         
         // Clone for init task
@@ -58,6 +61,10 @@ impl MatchService {
 
     fn get_repo(&self) -> Option<Arc<HasuraMatchRepository>> {
         self.repo_cell.get().cloned()
+    }
+
+    pub fn set_ws_handler(&mut self, handler: Arc<WebSocketHandler>) {
+        self.ws_handler = Some(handler);
     }
 
     // Initialize match pools
@@ -122,7 +129,18 @@ impl MatchService {
 
             // Check if room is full
             if room.current_players == room.required_players {
+                println!("The room is ready. Let's begin the game.: {}", room.id);
                 room.status = "ready".to_string();
+
+                if let Some(handler) = &self.ws_handler {
+                    handler.broadcast_match_update(
+                        room.id, 
+                        &room.status, 
+                        match_type,
+                        room.current_players, 
+                        room.required_players
+                    ).await?;
+                }
                 
                 // Clone room ID for async call
                 let match_id = room.id;
@@ -256,18 +274,41 @@ impl MatchService {
         
         // Proceed with starting the match if we have a repository
         if let Some(repo) = &self.get_repo() {
+            println!("Create match's record: {}", match_id);
+
             // Calculate players per team
             let players_per_team = room.required_players / 2;
             
             // 1. Create match record in database
-            repo.create_match(match_id, &match_type, players_per_team).await?;
+            match repo.create_match(match_id, &match_type, players_per_team).await {
+                Ok(_) => println!("匹配记录创建成功"),
+                Err(e) => {
+                    println!("创建匹配记录失败: {:?}", e);
+                    return Err(e);
+                }
+            }
+
+            println!("创建队伍");
             
             // 2. Create teams
             let team1_id = Uuid::new_v4();
             let team2_id = Uuid::new_v4();
             
-            repo.create_team(team1_id, match_id, 1, players_per_team).await?;
-            repo.create_team(team2_id, match_id, 2, players_per_team).await?;
+            match repo.create_team(team1_id, match_id, 1, players_per_team).await {
+                Ok(_) => println!("队伍1创建成功: {}", team1_id),
+                Err(e) => {
+                    println!("创建队伍1失败: {:?}", e);
+                    return Err(e);
+                }
+            }
+            
+            match repo.create_team(team2_id, match_id, 2, players_per_team).await {
+                Ok(_) => println!("队伍2创建成功: {}", team2_id),
+                Err(e) => {
+                    println!("创建队伍2失败: {:?}", e);
+                    return Err(e);
+                }
+            }
             
             // 3. Randomly assign players to teams
             let mut players = room.players.clone();
@@ -291,16 +332,42 @@ impl MatchService {
             repo.start_match(match_id).await?;
         }
         
-        // Update in-memory state
+        // 更新内存中的状态
         {
             let mut pools = self.match_pools.write().await;
             if let Some(pool) = pools.get_mut(&match_type) {
                 if let Some(room) = pool.iter_mut().find(|r| r.id == match_id) {
-                    room.status = "in_progress".to_string();
+                    room.status = "playing".to_string();
                 }
             }
         }
-        
+
+        // 在状态更新后立即广播
+        if let Some(handler) = &self.ws_handler {
+            println!("开始广播匹配开始消息，匹配ID: {}, 状态: playing", match_id);
+            
+            // 获取所有相关连接并打印
+            let conns = handler.conn_manager.get_connections_by_match(match_id).await;
+                println!("找到 {} 个需要广播的连接", conns.len());
+                for conn in &conns {
+                    println!("  连接ID: {}", conn);
+                }
+            
+            // 发送广播
+            match handler.broadcast_match_update(
+                match_id,
+                "playing",
+                &match_type,
+                room.required_players,
+                room.required_players
+            ).await {
+                Ok(_) => println!("成功广播匹配状态更新为playing"),
+                Err(e) => println!("广播匹配状态失败: {:?}", e)
+            }
+        } else {
+            println!("警告: ws_handler未设置，无法广播状态更新");
+        }
+
         Ok(())
     }
     

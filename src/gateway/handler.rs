@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::ConnectionManager;
 
 pub struct WebSocketHandler {
-    conn_manager: ConnectionManager,
+    pub conn_manager: ConnectionManager,
     match_service: Arc<MatchService>,
 }
 
@@ -22,6 +22,43 @@ impl WebSocketHandler {
             conn_manager: ConnectionManager::new(),
             match_service,
         }
+    }
+
+    // 广播匹配状态更新
+    pub async fn broadcast_match_update(&self, match_id: Uuid, status: &str, match_type: &str, current_players: i32, required_players: i32) -> Result<()> {
+        println!("广播匹配更新: 匹配ID={}, 状态={}, 玩家={}/{}", match_id, status, current_players, required_players);
+        
+        // 获取所有在这个匹配中的连接
+        let connections = self.conn_manager.get_connections_by_match(match_id).await;
+        println!("找到 {} 个连接需要通知", connections.len());
+
+        if connections.is_empty() {
+            println!("警告: 没有找到匹配 {} 的连接，检查所有连接...", match_id);
+        }
+        
+        for conn_id in connections {
+            let update_msg = ServerMessage {
+                msg_id: Uuid::new_v4(),
+                code: 0,
+                data: Some(json!({
+                    "match_id": match_id,
+                    "status": status,
+                    "type": match_type,
+                    "current_players": current_players,
+                    "required_players": required_players
+                })),
+                error: None,
+            };
+            
+            // 发送更新消息（忽略错误，因为有些连接可能已断开）
+            if let Err(e) = self.send_message(conn_id, &update_msg).await {
+                println!("发送通知给连接 {} 失败: {:?}", conn_id, e);
+            } else {
+                println!("成功通知连接: {}", conn_id);
+            }
+        }
+        
+        Ok(())
     }
 
     async fn send_message(&self, conn_id: Uuid, message: &ServerMessage) -> Result<()> {
@@ -97,7 +134,7 @@ impl WebSocketHandler {
 
     // 开始匹配
     async fn handle_match_start(&self, conn_id: Uuid, msg: ClientMessage) -> Result<()> {
-        // 解析匹配类型 (1v1, 2v2, 5v5)
+        // 获取匹配类型
         let match_type: String = serde_json::from_value(msg.data)
             .map_err(|_| Error::InvalidMessage)?;
         
@@ -105,12 +142,17 @@ impl WebSocketHandler {
             .await
             .ok_or(Error::ConnectionNotFound)?;
         
-        // 加入对应的匹配池
+        // 加入匹配
         let match_result = self.match_service.clone().join_match(
             state.user_id,
             &match_type
         ).await?;
-
+        
+        // 立即更新连接的match_id，确保广播能找到该连接
+        println!("更新连接 {} 的match_id为 {}", conn_id, match_result.match_id);
+        self.conn_manager.update_match_id(&conn_id, Some(match_result.match_id)).await;
+        
+        // 返回响应
         let response = ServerMessage {
             msg_id: msg.msg_id,
             code: 0,

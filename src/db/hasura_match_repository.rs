@@ -80,6 +80,7 @@ struct TeamData {
 struct MemberData {
     id: Uuid,
     user_id: Uuid,
+    #[serde(default)]
     individual_score: i32,
 }
 
@@ -152,9 +153,13 @@ impl HasuraMatchRepository {
                     team_number: $team_number,
                     max_players: $max_players,
                     current_players: 0
+                    total_score: 0
                 }) {
                     id
                     team_number
+                    current_players
+                    max_players
+                    total_score
                 }
             }
         "#;
@@ -172,7 +177,7 @@ impl HasuraMatchRepository {
     
     // Add a player to a team
     pub async fn add_player_to_team(&self, match_id: Uuid, team_id: Uuid, user_id: Uuid) -> Result<Uuid> {
-        // Insert the player as a member
+        // 插入队员记录
         let mutation = r#"
             mutation AddPlayerToTeam($match_id: uuid!, $team_id: uuid!, $user_id: uuid!) {
                 insert_match_members_one(object: {
@@ -195,12 +200,44 @@ impl HasuraMatchRepository {
         
         let response: MemberInsertResponse = self.client.mutate(mutation, variables).await?;
         
-        // Update the current_players count in the team
+        // 首先获取当前team信息
+        let query = r#"
+            query GetTeamInfo($team_id: uuid!) {
+                match_teams_by_pk(id: $team_id) {
+                    current_players
+                    max_players
+                }
+            }
+        "#;
+        
+        let query_variables = json!({
+            "team_id": team_id
+        });
+        
+        #[derive(Debug, Deserialize)]
+        struct TeamInfoResponse {
+            match_teams_by_pk: TeamInfo,
+        }
+        
+        #[derive(Debug, Deserialize)]
+        struct TeamInfo {
+            current_players: i32,
+            max_players: i32,
+        }
+        
+        let team_info: TeamInfoResponse = self.client.query(query, query_variables).await?;
+        
+        // 计算新的玩家数量，确保不超过最大值
+        let current = team_info.match_teams_by_pk.current_players;
+        let max = team_info.match_teams_by_pk.max_players;
+        let new_count = std::cmp::min(current + 1, max);
+        
+        // 使用直接设置的方式更新
         let update_mutation = r#"
-            mutation UpdateTeamPlayerCount($team_id: uuid!) {
+            mutation UpdateTeamDirectly($team_id: uuid!, $current_players: Int!) {
                 update_match_teams_by_pk(
                     pk_columns: {id: $team_id},
-                    _inc: {current_players: 1}
+                    _set: {current_players: $current_players}
                 ) {
                     id
                     current_players
@@ -209,40 +246,51 @@ impl HasuraMatchRepository {
         "#;
         
         let update_variables = json!({
-            "team_id": team_id
+            "team_id": team_id,
+            "current_players": new_count
         });
         
         self.client.mutate::<Value>(update_mutation, update_variables).await?;
         
         Ok(response.insert_match_members_one.id)
     }
-    
+
     // Start a match
     pub async fn start_match(&self, match_id: Uuid) -> Result<()> {
+        let now = chrono::Utc::now();
+        let now_iso = now.to_rfc3339();
+        
+        // 简化查询，确保语法正确
         let mutation = r#"
-            mutation StartMatch($id: uuid!) {
+            mutation StartMatch($id: uuid!, $start_time: timestamptz!) {
                 update_treasure_matches_by_pk(
                     pk_columns: {id: $id},
-                    _set: {
-                        status: "in_progress",
-                        start_time: "now()"
-                    }
+                    _set: {status: "playing", start_time: $start_time}
                 ) {
                     id
                     status
+                    match_type  # 确保包含所有需要的字段
+                    required_players_per_team
+                    start_time
                 }
             }
         "#;
         
         let variables = json!({
-            "id": match_id
+            "id": match_id,
+            "start_time": now_iso
         });
+        
+        println!("开始匹配: {} 状态设为playing, 时间: {}", match_id, now_iso);
         
         let response: MatchUpdateResponse = self.client.mutate(mutation, variables).await?;
         
         if response.update_treasure_matches_by_pk.is_none() {
+            println!("错误: 匹配不存在");
             return Err(Error::MatchNotFound);
         }
+        
+        println!("匹配成功开始");
         
         Ok(())
     }
@@ -339,42 +387,58 @@ impl HasuraMatchRepository {
             "match_id": match_id
         });
         
+        println!("查找匹配 {} 的获胜队伍", match_id);
+        
         let response: TeamsQueryResponse = self.client.query(query, variables).await?;
         
         if response.match_teams.is_empty() {
+            println!("错误: 未找到队伍");
             return Err(Error::MatchNotFound);
         }
         
         let winner_id = response.match_teams[0].id;
+        println!("获胜队伍: {}", winner_id);
+        
+        // 使用ISO格式时间
+        let now = chrono::Utc::now();
+        let now_iso = now.to_rfc3339();
         
         // Update match status and set winner
         let mutation = r#"
-            mutation EndMatch($id: uuid!, $winner_id: uuid!) {
+            mutation EndMatch($id: uuid!, $winner_id: uuid!, $end_time: timestamptz!) {
                 update_treasure_matches_by_pk(
                     pk_columns: {id: $id},
                     _set: {
-                        status: "completed",
-                        end_time: "now()",
+                        status: "finished",  // 修改为正确的状态值
+                        end_time: $end_time,  // 使用ISO格式时间
                         is_finished: true,
                         winner_team_id: $winner_id
                     }
                 ) {
                     id
                     status
+                    end_time
+                    winner_team_id
                 }
             }
         "#;
         
         let variables = json!({
             "id": match_id,
-            "winner_id": winner_id
+            "winner_id": winner_id,
+            "end_time": now_iso
         });
+        
+        println!("结束匹配 {}, 获胜队伍: {}", match_id, winner_id);
         
         let response: MatchUpdateResponse = self.client.mutate(mutation, variables).await?;
         
         if response.update_treasure_matches_by_pk.is_none() {
+            println!("错误: 更新匹配状态时未找到匹配");
             return Err(Error::MatchNotFound);
         }
+        
+        println!("匹配成功结束, 结果: {:?}", response.update_treasure_matches_by_pk);
         
         Ok(())
     }
